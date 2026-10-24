@@ -16,5 +16,6 @@
 // AML中に押してもAMLを維持するキーポジション {row, col}
 // これ以外のポジションが押されると即default layerへ戻り、そのキーはdefault layer側のキーとして入力される
 // matrixの位置は v1/info.json の "matrix" を参照
-//   {1, 0}: A, {1, 1}〜{1, 4}: S D F G, {1, 9}: MINS (default layerでの位置)
-#define COCOT_AML_KEEP_POSITIONS { {1, 0}, {1, 1}, {1, 2}, {1, 3}, {1, 4}, {1, 9} }
+//   {1, 0}: A, {1, 1}〜{1, 4}: S D F G, {1, 9}: MINS
+//   {3, 1}: LALT, {3, 2}: LNG2, {3, 3}: SPC (default layerでの位置)
+#define COCOT_AML_KEEP_POSITIONS { {1, 0}, {1, 1}, {1, 2}, {1, 3}, {1, 4}, {1, 9}, {3, 1}, {3, 2}, {3, 3} }

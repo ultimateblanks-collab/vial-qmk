@@ -102,6 +102,33 @@ const uint16_t PROGMEM encoder_map[][NUM_ENCODERS][2] = {
 
 
 
+// RDP対策: 修飾付きキーコード(KC_EXLM, LSFT(kc), LCTL(kc)など)で、
+// 修飾キーの押下とキー本体の押下の間に待ちを入れる。
+// 間隔が短すぎるとRDP上で修飾キーより先にキーが処理され、Shiftが効かないことがあるため。
+#ifndef RDP_MOD_DELAY
+#    define RDP_MOD_DELAY 20
+#endif
+
+bool process_record_user(uint16_t keycode, keyrecord_t *record) {
+    if (IS_QK_MODS(keycode)) {
+        // 5bit形式(bit4が右手フラグ)の修飾を8bitのHIDモッドマスクへ変換
+        uint8_t m5   = QK_MODS_GET_MODS(keycode);
+        uint8_t mods = (m5 & 0x10) ? (uint8_t)((m5 & 0x0F) << 4) : (uint8_t)(m5 & 0x0F);
+        uint8_t kc   = QK_MODS_GET_BASIC_KEYCODE(keycode);
+        if (record->event.pressed) {
+            register_weak_mods(mods);
+            wait_ms(RDP_MOD_DELAY);
+            register_code(kc);
+        } else {
+            unregister_code(kc);
+            wait_ms(RDP_MOD_DELAY);
+            unregister_weak_mods(mods);
+        }
+        return false;
+    }
+    return true;
+}
+
 bool is_mouse_record_kb(uint16_t keycode, keyrecord_t* record) {
     switch(keycode) {
       case KC_LCTL:
