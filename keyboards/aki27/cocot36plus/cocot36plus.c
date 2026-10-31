@@ -30,7 +30,7 @@ extern const pointing_device_driver_t pointing_device_driver;
 #endif
 
 #ifndef COCOT_CPI_OPTIONS
-#    define COCOT_CPI_OPTIONS {700, 800, 900, 1000, 1200 }
+#    define COCOT_CPI_OPTIONS {500, 600, 700, 800, 1200 }
 #    ifndef COCOT_CPI_DEFAULT
 #       define COCOT_CPI_DEFAULT 1
 #    endif
@@ -91,24 +91,28 @@ uint16_t angle_array[] = COCOT_ROTATION_ANGLE;
 #define SCRL_DIV_SIZE (sizeof(scrl_div_array) / sizeof(uint16_t))
 #define ANGLE_SIZE (sizeof(angle_array) / sizeof(uint16_t))
 
+// センサーへ最後に書き込んだCPI (0 = 未反映)
+static uint16_t cocot_applied_cpi = 0;
+
 // 設定値のCPIをセンサーへ反映 (COCOT_SLOW_CPI_LAYERが有効な間は1/COCOT_SLOW_CPI_DIV)
 static void cocot_apply_cpi(layer_state_t state) {
-    static uint16_t applied_cpi = 0;
     uint16_t cpi = cpi_array[cocot_config.cpi_idx];
     if (layer_state_cmp(state, COCOT_SLOW_CPI_LAYER)) {
         cpi /= COCOT_SLOW_CPI_DIV;
     }
-    if (cpi != applied_cpi) {
+    if (cpi != cocot_applied_cpi) {
         pointing_device_set_cpi(cpi);
-        applied_cpi = cpi;
+        cocot_applied_cpi = cpi;
     }
 }
 
 void pointing_device_init_kb(void) {
-    // set the CPI.
-    cocot_apply_cpi(layer_state);
     cocot_config.raw = eeconfig_read_kb();
     eeconfig_update_kb(cocot_config.raw);
+    // センサー初期化(pointing_device_driver->init)でCPIがPMW33XX_CPIに戻されるため、
+    // それ以前にレイヤー処理等で反映済みになっていても必ず書き直す
+    cocot_applied_cpi = 0;
+    cocot_apply_cpi(layer_state);
     //set_auto_mouse_layer(4);
     set_auto_mouse_enable(cocot_config.auto_mouse);
 }
@@ -425,7 +429,7 @@ void matrix_init_kb(void) {
     // is safe to just read CPI setting since matrix init
     // comes before pointing device init.
     cocot_config.raw = eeconfig_read_kb();
-    if (cocot_config.cpi_idx > CPI_OPTION_SIZE) // || cocot_config.scrl_div > SCRL_DIV_SIZE || cocot_config.rotation_angle > ANGLE_SIZE)
+    if (cocot_config.cpi_idx >= CPI_OPTION_SIZE) // || cocot_config.scrl_div > SCRL_DIV_SIZE || cocot_config.rotation_angle > ANGLE_SIZE)
     {
         eeconfig_init_kb();
     }
@@ -499,65 +503,60 @@ void render_logo(void) {
 
 
 
+// RDP対策の状態表示。keymap側で定義されていなければ何も表示しない
+__attribute__((weak)) char cocot_rdp_indicator(void) {
+    return 0;
+}
+__attribute__((weak)) bool cocot_rdp_popup(char *buf, uint8_t len) {
+    return false;
+}
+
+#define COCOT_OLED_COLS 21 // 128px / 6px(フォント幅)
+
 void oled_write_layer_state(void) {
+    char line[COCOT_OLED_COLS + 1];
 
-    oled_write_P(PSTR("Layer"), false);
-    // int cpi = pointing_device_get_cpi();
-    int cpi = cpi_array[cocot_config.cpi_idx];
-    int scroll_div = scrl_div_array[cocot_config.scrl_div];
-    int angle_origin = angle_array[cocot_config.rotation_angle];
-    int angle;
-    if (angle_origin > 360) {
-        angle = angle_origin - 65536;
-    } else {
-        angle = angle_origin;
-    }
-    int lyr = get_highest_layer(layer_state);
+    if (!cocot_rdp_popup(line, sizeof(line))) {
+        // int cpi = pointing_device_get_cpi();
+        int cpi = cpi_array[cocot_config.cpi_idx];
+        int scroll_div = scrl_div_array[cocot_config.scrl_div];
+        int angle_origin = angle_array[cocot_config.rotation_angle];
+        int angle;
+        if (angle_origin > 360) {
+            angle = angle_origin - 65536;
+        } else {
+            angle = angle_origin;
+        }
+        int lyr = get_highest_layer(layer_state);
 
-    char buf1[6];
-    char buf2[6];
-    char buf3[8];
-    char buf4[8];
+        int n = snprintf(line, sizeof(line), "L%1d/%c/%c/%4d/%1d/%c%2d",
+                         lyr,
+                         cocot_get_scroll_mode() ? 'S' : 'C',
+                         get_auto_mouse_enable() ? 'Y' : 'N',
+                         cpi,
+                         scroll_div,
+                         angle < 0 ? '-' : ' ',
+                         abs(angle));
 
-    snprintf(buf1, 6, "%4d", cpi);
-    snprintf(buf2, 6, "%1d", scroll_div);
-    snprintf(buf3, 8, "%2d", abs(angle));
-    snprintf(buf4, 8, "%1d", lyr);
-    
-    oled_write(buf4, false);
-    //oled_write_P(get_u8_str(get_highest_layer(layer_state), '0'), false);
-    
-    oled_write_P(PSTR("/"), false);
-        if (cocot_get_scroll_mode()){
-        oled_write_P(PSTR("S"), false);
-    } else{
-        oled_write_P(PSTR("C"), false);
+        char rdp = cocot_rdp_indicator();
+        if (rdp && n >= 0 && n + 2 <= COCOT_OLED_COLS) {
+            line[n++] = '/';
+            line[n++] = rdp;
+            line[n]   = '\0';
+        }
     }
 
-    oled_write_P(PSTR("/"), false);
-    if (get_auto_mouse_enable()){
-        oled_write_P(PSTR("Y"), false);
-    } else{
-        oled_write_P(PSTR("N"), false);
-    }
-    
-    oled_write_P(PSTR("/"), false);
-    oled_write(buf1, false);
-    oled_write_P(PSTR("/"), false);
-    
-    oled_write(buf2, false);
-
-    oled_write_P(PSTR("/"), false);
-    if (angle < 0) {
-        oled_write_P(PSTR("-"), false);
-    } else {
-        oled_write_P(PSTR(" "), false);
-    }
-    oled_write(buf3, false);
+    // 1行ちょうどの文字数にそろえる(前の表示の消え残りと、次のフレームのロゴのずれを防ぐ)
+    uint8_t len = 0;
+    while (len < COCOT_OLED_COLS && line[len] != '\0') len++;
+    while (len < COCOT_OLED_COLS) line[len++] = ' ';
+    line[COCOT_OLED_COLS] = '\0';
+    oled_write(line, false);
 }
 
 
 bool oled_task_user(void) {
+    oled_set_cursor(0, 0);
     render_logo();
     oled_write_layer_state();
     return false;

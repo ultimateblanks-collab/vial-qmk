@@ -10,12 +10,16 @@
 #define AUTO_MOUSE_DEBOUNCE 25
 #define COCOT_AML_CLICK_EXIT_TIME 250   // マウスボタン入力から250ms後にdefault layerへ戻る
 
+#define RGB_MATRIX_SLEEP         // PCのスリープ中はRGB Matrixを全消灯(AML/RDP表示用LEDもここで消える)
+
+#define COCOT_CPI_DEFAULT 0      // EEPROM初期化時のCPI: COCOT_CPI_OPTIONSの0番目(500)
+
 #define COCOT_SLOW_CPI_LAYER 5   // このレイヤーが有効な間はCPIを落とす
 #define COCOT_SLOW_CPI_DIV 5     // 設定値の1/5
 
 // AML中に押してもAMLを維持するキーポジション {row, col}
 // これ以外のポジションが押されると即default layerへ戻り、そのキーはdefault layer側のキーとして入力される
 // matrixの位置は v1/info.json の "matrix" を参照
-//   {1, 0}: A, {1, 1}〜{1, 4}: S D F G, {1, 9}: MINS
-//   {3, 1}: LALT, {3, 2}: LNG2, {3, 3}: SPC (default layerでの位置)
+//   {1, 0}: LGUI_T(A), {1, 1}〜{1, 4}: S D F G, {1, 9}: TD(2)
+//   {3, 1}〜{3, 3}: 左親指 LT(5,ESC) LT(2,ENT) LT(7,DEL) (default layerでの位置)
 #define COCOT_AML_KEEP_POSITIONS { {1, 0}, {1, 1}, {1, 2}, {1, 3}, {1, 4}, {1, 9}, {3, 1}, {3, 2}, {3, 3} }

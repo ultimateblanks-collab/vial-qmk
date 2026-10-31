@@ -12,7 +12,10 @@
     {"name": "SCRL_MO", "title": "Enable scroll mode while being pressed", "shortName": "SCRL_MO"},
     {"name": "SCRL_TO", "title": "Toggle scroll and cursor mode each time pressed", "shortName": "SCRL_TO"},
     {"name": "SCRL_IN", "title": "Invert scroll direction", "shortName": "SCRL_IN"},
-    {"name": "AM_TOG", "title": "Toggle auto mouse layer", "shortName": "AM_TOG"}
+    {"name": "AM_TOG", "title": "Toggle auto mouse layer", "shortName": "AM_TOG"},
+    {"name": "RDP_UP", "title": "RDP delay +10ms", "shortName": "RDP_UP"},
+    {"name": "RDP_DN", "title": "RDP delay -10ms", "shortName": "RDP_DN"},
+    {"name": "RDP_TOG", "title": "Toggle RDP modifier delay", "shortName": "RDP_TOG"}
   ],
   "layouts": {
     "keymap": [

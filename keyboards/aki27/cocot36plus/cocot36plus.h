@@ -72,3 +72,6 @@ bool is_clickable_mode(void);
 
 void render_logo(void);
 void oled_write_layer_state(void);
+
+char cocot_rdp_indicator(void);              // 4行目末尾の1文字。0なら表示しない
+bool cocot_rdp_popup(char *buf, uint8_t len); // trueのとき4行目をbufの内容に置き換える
