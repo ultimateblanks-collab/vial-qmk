@@ -77,11 +77,14 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define KEYBALL_AML_LED_INDEX 17
 #define KEYBALL_AML_LED_ON_LEFT true
 
-// RDP対策がオンの間に白で点灯するLED: LED番号 (左右それぞれ0始まり) と、左手側か
-#define KEYBALL_RDP_LED_INDEX 9
-#define KEYBALL_RDP_LED_ON_LEFT false
+// アンダーグローのLED範囲 (左右それぞれ0始まりの先頭番号と個数)。診断用ファームで確認した値
+// RDP対策オンで白、Caps Wordオンで青に点灯 (両方オンならCaps Word優先)
+#define KEYBALL_UG_LEFT_START 18
+#define KEYBALL_UG_LEFT_COUNT 6
+#define KEYBALL_UG_RIGHT_START 1
+#define KEYBALL_UG_RIGHT_COUNT 5
 
-// RDP対策のオン/オフをUSB非接続側へ送る (RDP表示LEDがUSB非接続側にある場合のため)
+// RDP対策とCaps Wordのオン/オフをUSB非接続側へ送る (アンダーグローを左右とも点灯させるため)
 #define SPLIT_TRANSACTION_IDS_USER KEYBALL_RDP_SYNC
 
 // AML表示用LEDを右手側でも判定できるよう、レイヤー状態を左右で同期する

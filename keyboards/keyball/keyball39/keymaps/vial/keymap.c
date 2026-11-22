@@ -176,8 +176,16 @@ void eeconfig_init_user(void) {
     rdp_config_reset();
 }
 
+// USB非接続側で、マスターから届いたCaps Wordの状態
+static bool caps_word_remote = false;
+
+// 同期データ: bit0 = RDP対策オン, bit1 = Caps Wordオン
 static void rdp_sync_handler(uint8_t in_buflen, const void *in_data, uint8_t out_buflen, void *out_data) {
-    if (in_buflen == 1) rdp_config.enabled = *(const uint8_t *)in_data ? 1 : 0;
+    if (in_buflen == 1) {
+        uint8_t v          = *(const uint8_t *)in_data;
+        rdp_config.enabled = (v & 1) ? 1 : 0;
+        caps_word_remote   = (v & 2) ? true : false;
+    }
 }
 
 void keyboard_post_init_user(void) {
@@ -450,10 +458,13 @@ static uint8_t aml_led_val(void) {
     return !led_suspended && layer_state_is(get_auto_mouse_layer()) ? rgblight_get_val() : 0;
 }
 
-// RDP対策がオンの間は白(明るさはRGBLIGHTの設定値)、オフなら消灯
-// rdp_configはUSB接続側(マスター)で更新され、USB非接続側へは housekeeping_task_user で送る
-static uint8_t rdp_led_val(void) {
-    return !led_suspended && rdp_config.enabled ? rgblight_get_val() : 0;
+// アンダーグローの表示状態: 0=通常, 1=RDP対策オン(白), 2=Caps Wordオン(青。両方ならこちら優先)
+// rdp_configとCaps WordはUSB接続側(マスター)で更新され、USB非接続側へは housekeeping_task_user で送る
+static uint8_t ug_state(void) {
+    if (led_suspended) return 0;
+    bool caps = is_keyboard_master() ? is_caps_word_on() : caps_word_remote;
+    if (caps) return 2;
+    return rdp_config.enabled ? 1 : 0;
 }
 
 // スリープに入るとき: この後のrgblight_suspend()(RGBLIGHT_SLEEP)が全消灯し、そのflushで表示LEDも消える
@@ -468,7 +479,7 @@ void suspend_wakeup_init_user(void) {
 }
 
 // RGBLIGHTのドライバー (rules.mk で RGBLIGHT_DRIVER = custom)。中身は ws2812 のままで、
-// LEDへ送り出す直前 (flush) に KEYBALL_AML_LED_INDEX / KEYBALL_RDP_LED_INDEX だけ差し替える。
+// LEDへ送り出す直前 (flush) に KEYBALL_AML_LED_INDEX とアンダーグロー(KEYBALL_UG_*)だけ差し替える。
 // Vialの lighting "All Off" でも rgblight_set() は flush を呼ぶので、消灯中もAML表示は点灯する。
 static void aml_led_flush(void) {
 #    ifdef KEYBALL_AML_LED_DEBUG
@@ -485,9 +496,19 @@ static void aml_led_flush(void) {
     if (is_keyboard_left() == KEYBALL_AML_LED_ON_LEFT && KEYBALL_AML_LED_INDEX < rgblight_ranges.clipping_num_leds) {
         ws2812_set_color(KEYBALL_AML_LED_INDEX, 0, 0, aml_led_val());
     }
-    if (is_keyboard_left() == KEYBALL_RDP_LED_ON_LEFT && KEYBALL_RDP_LED_INDEX < rgblight_ranges.clipping_num_leds) {
-        uint8_t v = rdp_led_val();
-        ws2812_set_color(KEYBALL_RDP_LED_INDEX, v, v, v);
+    // アンダーグロー: RDP対策オンで白、Caps Wordオンで青 (どちらでもなければRGBLIGHT本来の色のまま)
+    uint8_t ug = ug_state();
+    if (ug) {
+        uint8_t start = is_keyboard_left() ? KEYBALL_UG_LEFT_START : KEYBALL_UG_RIGHT_START;
+        uint8_t count = is_keyboard_left() ? KEYBALL_UG_LEFT_COUNT : KEYBALL_UG_RIGHT_COUNT;
+        uint8_t v     = rgblight_get_val();
+        for (uint8_t i = start; i < start + count && i < rgblight_ranges.clipping_num_leds; i++) {
+            if (ug == 2) {
+                ws2812_set_color(i, 0, 0, v);
+            } else {
+                ws2812_set_color(i, v, v, v);
+            }
+        }
     }
     ws2812_flush();
 }
@@ -524,20 +545,22 @@ void housekeeping_task_user(void) {
         refresh_timer = timer_read();
     }
 #    else
-    // マスター: RDPのオン/オフを変化時と500msごとにUSB非接続側へ送る
-    static uint8_t  last_rdp_sent  = 0xFF;
+    // マスター: RDPとCaps Wordのオン/オフを変化時と500msごとにUSB非接続側へ送る
+    static uint8_t  last_sync_sent = 0xFF;
     static uint16_t rdp_sync_timer = 0;
-    if (is_keyboard_master() && (rdp_config.enabled != last_rdp_sent || timer_elapsed(rdp_sync_timer) > 500)) {
+    uint8_t         sync_now       = (rdp_config.enabled ? 1 : 0) | (is_caps_word_on() ? 2 : 0);
+    if (is_keyboard_master() && (sync_now != last_sync_sent || timer_elapsed(rdp_sync_timer) > 500)) {
         // 送れなかった場合 (片手だけ接続中など) も、500msごとの再送で追いつく
-        last_rdp_sent = rdp_config.enabled;
-        transaction_rpc_send(KEYBALL_RDP_SYNC, sizeof(last_rdp_sent), &last_rdp_sent);
+        last_sync_sent = sync_now;
+        transaction_rpc_send(KEYBALL_RDP_SYNC, sizeof(sync_now), &sync_now);
         rdp_sync_timer = timer_read();
     }
 
     static int32_t last_val = -1;
     int32_t        aml_val  = 0;
     if (is_keyboard_left() == KEYBALL_AML_LED_ON_LEFT) aml_val |= aml_led_val();
-    if (is_keyboard_left() == KEYBALL_RDP_LED_ON_LEFT) aml_val |= (int32_t)rdp_led_val() << 8;
+    aml_val |= (int32_t)ug_state() << 8;
+    aml_val |= (int32_t)rgblight_get_val() << 16; // 明るさを変えたときも書き直す
     if (aml_val != last_val || (!rgblight_is_enabled() && timer_elapsed(refresh_timer) > 100)) {
         rgblight_set();
         last_val      = aml_val;
