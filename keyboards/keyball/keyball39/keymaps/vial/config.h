@@ -92,7 +92,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 // PCの電源投入と同時にキーボードが通電する場合、USBの認識が遅れて左右とも子機になるのを防ぐ。
 // USB認識を待つ時間を既定の2000msから延ばす (起動はその分遅くなる)
-#define SPLIT_USB_TIMEOUT 8000
+#define SPLIT_USB_TIMEOUT 5000
 
 // 左右の通信が途切れた側を自動で再起動する
 #define SPLIT_WATCHDOG_ENABLE
