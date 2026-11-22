@@ -53,7 +53,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 
   [3] = LAYOUT_universal(
     RGB_TOG  , AML_TO   , AML_I50  , AML_D50  , _______  ,                            _______  , _______  , SSNP_HOR , SSNP_VRT , SSNP_FRE ,
-    RGB_MOD  , RGB_HUI  , RGB_SAI  , RGB_VAI  , SCRL_DVI ,                            _______  , _______  , _______  , _______  , _______  ,
+    RGB_MOD  , RGB_HUI  , RGB_SAI  , RGB_VAI  , SCRL_DVI ,                            CW_TOGG  , _______  , _______  , _______  , _______  ,
     RGB_RMOD , RGB_HUD  , RGB_SAD  , RGB_VAD  , SCRL_DVD ,                            CPI_D1K  , CPI_D100 , CPI_I100 , CPI_I1K  , KBC_SAVE ,
     QK_BOOT  , KBC_RST  , _______  , _______  , _______  , _______  ,      _______  , _______  , _______  , _______  , KBC_RST  , QK_BOOT
   ),
@@ -320,6 +320,30 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
     if (keycode == RDP_UP || keycode == RDP_DN || keycode == RDP_TOG) {
         if (record->event.pressed) rdp_change_setting(keycode);
         return false;
+    }
+
+    // Caps Word中の「-」は、JIS配列で「_」(Shift+KC_INT1)を入力してCaps Wordを継続する。
+    // QMK標準ではKC_MINSにShiftが付き、JIS配列では「=」になってしまうため。
+    // 「-」がVialのタップダンスに割り当てられている場合(タップ動作がKC_MINS)も同様に扱う。
+    // この場合、Caps Word中はタップダンスのホールド/ダブルタップ等は無効になる。
+    // 解放側も横取りして基本キーの解放を送らない。
+    {
+        bool is_minus = (keycode == KC_MINS);
+#ifdef VIAL_TAP_DANCE_ENABLE
+        if (IS_QK_TAP_DANCE(keycode)) {
+            vial_tap_dance_entry_t td;
+            if (dynamic_keymap_get_tap_dance(QK_TAP_DANCE_GET_INDEX(keycode), &td) == 0 && td.on_tap == KC_MINS) is_minus = true;
+        }
+#endif
+        if (is_minus && is_caps_word_on() && !(get_mods() & ~MOD_BIT(KC_LSFT) & ~MOD_BIT(KC_RSFT))) {
+            if (record->event.pressed) {
+                rdp_tap_shifted(KC_INT1);
+#if CAPS_WORD_IDLE_TIMEOUT > 0
+                caps_word_reset_idle_timer();
+#endif
+            }
+            return false;
+        }
     }
 
     rdp_mods_before = get_mods();
