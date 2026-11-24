@@ -2,9 +2,7 @@ name: Build Keyball39 firmware
 
 on:
   workflow_dispatch:
-  push:
-    branches: [keyball39-custom]
-
+  
 jobs:
   build:
     runs-on: ubuntu-latest
