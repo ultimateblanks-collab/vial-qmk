@@ -1,1 +1,28 @@
+name: Build Keyball39 firmware
 
+on:
+  workflow_dispatch:
+  push:
+    branches: [keyball39-custom]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: ghcr.io/qmk/qmk_cli
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build
+        run: |
+          qmk compile -kb keyball/keyball39 -km vial
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: keyball39-vial
+          path: |
+            *.uf2
+            *.hex
+            *.bin
+          if-no-files-found: error
