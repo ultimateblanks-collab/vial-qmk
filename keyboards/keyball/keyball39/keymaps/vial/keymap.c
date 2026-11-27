@@ -468,10 +468,11 @@ static uint8_t aml_led_val(void) {
     return !led_suspended && layer_state_is(get_auto_mouse_layer()) ? rgblight_get_val() : 0;
 }
 
-// アンダーグローの表示状態: 0=通常, 1=RDP対策オン(白), 2=Caps Wordオン(青。両方ならこちら優先)
+// アンダーグローの表示状態: 0=通常, 1=RDP対策オン(白), 2=Caps Wordオン(青。両方ならこちら優先), 3=レイヤー6(右手のみ緑。最優先)
 // rdp_configとCaps WordはUSB接続側(マスター)で更新され、USB非接続側へは housekeeping_task_user で送る
 static uint8_t ug_state(void) {
     if (led_suspended) return 0;
+    if (!is_keyboard_left() && layer_state_is(6)) return 3; // 右手のみ・レイヤー6で緑
     bool caps = is_keyboard_master() ? is_caps_word_on() : caps_word_remote;
     if (caps) return 2;
     return rdp_config.enabled ? 1 : 0;
@@ -513,7 +514,9 @@ static void aml_led_flush(void) {
         uint8_t count = is_keyboard_left() ? KEYBALL_UG_LEFT_COUNT : KEYBALL_UG_RIGHT_COUNT;
         uint8_t v     = rgblight_get_val();
         for (uint8_t i = start; i < start + count && i < rgblight_ranges.clipping_num_leds; i++) {
-            if (ug == 2) {
+            if (ug == 3) {
+                ws2812_set_color(i, 0, v, 0);
+            } else if (ug == 2) {
                 ws2812_set_color(i, 0, 0, v);
             } else {
                 ws2812_set_color(i, v, v, v);
