@@ -16,3 +16,4 @@ VIAL_ENABLE = yes
 
 # Caps Word (CW_TOGG キーでトグル。英字を大文字化し、スペース等で自動終了)
 CAPS_WORD_ENABLE = yes
+EXTRAKEY_ENABLE = yes
