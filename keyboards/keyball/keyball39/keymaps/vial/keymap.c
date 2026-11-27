@@ -143,6 +143,7 @@ void keyball_on_apply_motion_to_mouse_move(keyball_motion_t *m, report_mouse_t *
 #define RDP_UP QK_KB_16  // 押下側の待ちを+10ms
 #define RDP_DN QK_KB_17  // 押下側の待ちを-10ms
 #define RDP_TOG QK_KB_18 // 対策のオン/オフ(オフで待ち0ms、QMK標準の動作)
+#define SSNP_TOG QK_KB_19 // スクロールスナップ: VERTICAL <-> HORIZONTAL をトグル
 
 // EEPROM(ユーザー領域)に保存する設定。Keyballの設定はkb領域なので重ならない
 #define RDP_CONFIG_MAGIC 0xA5
@@ -330,6 +331,15 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
         return false;
     }
 
+    if (keycode == SSNP_TOG) {
+        if (record->event.pressed) {
+            keyball_set_scrollsnap_mode(
+                keyball_get_scrollsnap_mode() == KEYBALL_SCROLLSNAP_MODE_VERTICAL
+                    ? KEYBALL_SCROLLSNAP_MODE_HORIZONTAL
+                    : KEYBALL_SCROLLSNAP_MODE_VERTICAL);
+        }
+        return false;
+    }
     // Caps Word中の「-」は、JIS配列で「_」(Shift+KC_INT1)を入力してCaps Wordを継続する。
     // QMK標準ではKC_MINSにShiftが付き、JIS配列では「=」になってしまうため。
     // 「-」がVialのタップダンスに割り当てられている場合(タップ動作がKC_MINS)も同様に扱う。
