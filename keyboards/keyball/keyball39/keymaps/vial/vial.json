@@ -23,7 +23,9 @@
     {"name": "SSNP_FRE", "title": "Scroll snap: free",                        "shortName": "SSNP_FRE"},
     {"name": "RDP_UP",   "title": "RDP delay +10ms",                          "shortName": "RDP_UP"},
     {"name": "RDP_DN",   "title": "RDP delay -10ms",                          "shortName": "RDP_DN"},
-    {"name": "RDP_TOG",  "title": "Toggle RDP modifier delay",                "shortName": "RDP_TOG"}
+    {"name": "RDP_TOG",  "title": "Toggle RDP modifier delay",                "shortName": "RDP_TOG"},
+    {"name": "RDP_TOG",  "title": "Toggle RDP modifier delay",                "shortName": "RDP_TOG"},
+    {"name": "SSNP_TOG", "title": "Scroll snap: toggle vertical/horizontal",  "shortName": "SSNP_TOG"}
   ],
   "layouts" : {
     "labels": [
