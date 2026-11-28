@@ -996,6 +996,14 @@ void oledkit_render_logo_user(void) {
     }
 }
 
+// OLEDの向き。既定 (lib/oledkit/oledkit.c) は、USB非接続側だけ180度回転。
+// 左手側はそれを上下反転する (左右とも、接続の仕方によらず左手側が既定と逆向きになる)
+oled_rotation_t oled_init_user(oled_rotation_t rotation) {
+    bool rotate = !is_keyboard_master();
+    if (is_keyboard_left()) rotate = !rotate;
+    return rotate ? OLED_ROTATION_180 : rotation;
+}
+
 void oledkit_render_info_user(void) {
     // デフォルト以外のレイヤー: USB接続側の手のキーマップを表示
     if (okm_current_layer() != 0) {
