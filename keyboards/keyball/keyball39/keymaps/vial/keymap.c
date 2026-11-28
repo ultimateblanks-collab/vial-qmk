@@ -717,7 +717,23 @@ static const char *okm_basic_name(uint8_t kc, char *tmp) {
         snprintf(tmp, 8, "F%u", (unsigned)(kc - KC_F1 + 1));
         return tmp;
     }
+    if (kc >= KC_P1 && kc <= KC_P9) { // テンキーの数字は "P1"〜"P9"
+        tmp[0] = 'P';
+        tmp[1] = '1' + (kc - KC_P1);
+        tmp[2] = '\0';
+        return tmp;
+    }
     switch (kc) {
+        case KC_P0: return "P0";
+        case KC_PDOT: return "P.";
+        case KC_PSLS: return "P/";
+        case KC_PAST: return "P*";
+        case KC_PMNS: return "P-";
+        case KC_PPLS: return "P+";
+        case KC_PENT: return "PEn";
+        case KC_PEQL: return "P=";
+        case KC_PCMM: return "P,";
+        case KC_NUM: return "Num";
         case KC_0: return "0";
         case KC_ENT: return "Ent";
         case KC_ESC: return "Esc";
