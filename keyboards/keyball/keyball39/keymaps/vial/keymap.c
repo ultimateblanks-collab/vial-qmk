@@ -786,7 +786,7 @@ static const char *okm_basic_name(uint8_t kc, char *tmp) {
         case KC_BTN3: return "MB3";
         case KC_BTN4: return "MB4";
         case KC_APPLICATION: return "APP";
-        case KC_NUMLOCK: return "NML";
+        case KC_NUM_LOCK: return "NML";
         case KC_VOLD: return "VO-";
         case KC_VOLU: return "VO+";
         case KC_MUTE: return "MUT";
