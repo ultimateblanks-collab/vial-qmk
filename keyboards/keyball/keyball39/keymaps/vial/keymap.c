@@ -784,6 +784,7 @@ static const char *okm_basic_name(uint8_t kc, char *tmp) {
         case KC_BTN2: return "MB2";
         case KC_BTN3: return "MB3";
         case KC_BTN4: return "MB4";
+        case KC_BTN5: return "MB5";
         case KC_APPLICATION: return "APP";
         case KC_NUM_LOCK: return "NML";
         case KC_VOLD: return "VO-";
@@ -893,6 +894,7 @@ static void okm_label(uint16_t kc, uint8_t w, char *o, uint8_t depth) {
             case SSNP_VRT: s = "SVT"; break;
             case SSNP_HOR: s = "SHO"; break;
             case SSNP_FRE: s = "SFR"; break;
+            case SSNP_TOG: s = "STG"; break;
             case AML_TO: s = "AML"; break;
             case AML_I50: s = "A+5"; break;
             case AML_D50: s = "A-5"; break;
