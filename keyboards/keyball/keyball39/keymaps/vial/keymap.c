@@ -760,7 +760,7 @@ static const char *okm_basic_name(uint8_t kc, char *tmp) {
         case KC_LNG1: return "Ln1";
         case KC_LNG2: return "Ln2";
         case KC_CAPS: return "Cap";
-        case KC_PSCR: return "Prt";
+        case KC_PSCR: return "PSC";
         case KC_SCRL: return "Scr";
         case KC_PAUS: return "Pau";
         case KC_INS: return "Ins";
@@ -785,7 +785,11 @@ static const char *okm_basic_name(uint8_t kc, char *tmp) {
         case KC_BTN2: return "MB2";
         case KC_BTN3: return "MB3";
         case KC_BTN4: return "MB4";
-        
+        case KC_APPLICATION: return "APP";
+        case KC_NUMLOCK: return "NML";
+        case KC_VOLD: return "VO-";
+        case KC_VOLU: return "VO+";
+        case KC_MUTE: return "MUT";
         default: return NULL;
     }
 }
@@ -893,6 +897,9 @@ static void okm_label(uint16_t kc, uint8_t w, char *o, uint8_t depth) {
             case AML_TO: s = "AML"; break;
             case AML_I50: s = "A+5"; break;
             case AML_D50: s = "A-5"; break;
+            case RDP_UP: s = "Rup"; break;   // 追加
+            case RDP_DN: s = "Rdn"; break;   // 追加
+            case RDP_TOG: s = "Rdp"; break;  // 追加
             default: break;
         }
     }
