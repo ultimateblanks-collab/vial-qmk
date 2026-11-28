@@ -733,7 +733,6 @@ static const char *okm_basic_name(uint8_t kc, char *tmp) {
         case KC_PENT: return "PEn";
         case KC_PEQL: return "P=";
         case KC_PCMM: return "P,";
-        case KC_NUM: return "Num";
         case KC_0: return "0";
         case KC_ENT: return "Ent";
         case KC_ESC: return "Esc";
