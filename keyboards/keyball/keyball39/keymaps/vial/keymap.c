@@ -998,7 +998,7 @@ static void oled_keymap_sync_task(void) {
 }
 
 // 猫アニメーション (cat_0〜cat_4 を順番に繰り返す)。Keyballロゴの代わりにレイヤー0で表示する。
-// 全コマを OLED_CAT_LOOPS_PER_MOVE 回表示するごとに、表示位置を次の位置へ移す
+// 全コマを OLED_CAT_LOOPS_PER_MOVE 回表示するごとに、表示位置を変える
 #    include "cat_frames.h"
 
 #    ifndef OLED_CAT_FRAME_MS
@@ -1007,26 +1007,60 @@ static void oled_keymap_sync_task(void) {
 #    ifndef OLED_CAT_LOOPS_PER_MOVE
 #        define OLED_CAT_LOOPS_PER_MOVE 10 // 全コマ(0〜4)を何回表示したら位置を変えるか
 #    endif
+#    ifndef OLED_CAT_RANDOM_POS
+#        define OLED_CAT_RANDOM_POS 1 // 1: 位置をランダムに決める / 0: OLED_CAT_X_LIST の順に移動
+#    endif
+#    ifndef OLED_CAT_MIN_MOVE
+#        define OLED_CAT_MIN_MOVE 16 // ランダム時、前の位置から最低これだけ(px)離す
+#    endif
 #    ifndef OLED_CAT_X_LIST
-#        define OLED_CAT_X_LIST 0, 32, 64, 96 // 猫(幅32px)の左端の位置。順番に移動して最後は先頭に戻る
+#        define OLED_CAT_X_LIST 0, 32, 64, 96 // OLED_CAT_RANDOM_POS=0 のとき、猫(幅32px)の左端の位置
 #    endif
 
 #    define OLED_CAT_FRAME_NONE 0xFF
+#    define OLED_CAT_X_MAX (OLED_DISPLAY_WIDTH - 32) // 猫の左端として取れる最大値
+
+// 軽量な乱数 (xorshift32)。起動時刻と、呼び出し時刻を混ぜて種にする
+static uint32_t oled_cat_rand(void) {
+    static uint32_t state = 0;
+    state ^= timer_read32() * 2654435761u;
+    if (state == 0) state = 0x9E3779B9u;
+    state ^= state << 13;
+    state ^= state >> 17;
+    state ^= state << 5;
+    return state;
+}
+
+// 次の左端の位置を決める。cur: 今の位置 (最初の表示のときは 0xFF)
+static uint8_t oled_cat_next_x(uint8_t cur, uint8_t *slot) {
+#    if OLED_CAT_RANDOM_POS
+    (void)slot;
+    for (uint8_t i = 0; i < 16; i++) { // 前の位置に近すぎたら引き直す
+        uint8_t x = oled_cat_rand() % (OLED_CAT_X_MAX + 1);
+        if (cur == 0xFF || (x > cur ? x - cur : cur - x) >= OLED_CAT_MIN_MOVE) return x;
+    }
+    return cur == 0xFF ? 0 : (cur >= OLED_CAT_X_MAX / 2 ? 0 : OLED_CAT_X_MAX); // 引き直しで決まらなければ反対側へ
+#    else
+    static const uint8_t list[] = {OLED_CAT_X_LIST};
+    if (cur != 0xFF) *slot = (*slot + 1) % (sizeof(list) / sizeof(list[0]));
+    return list[*slot];
+#    endif
+}
 
 // 戻り値: 表示コマ番号を進めて描画したら true
 static bool oled_render_cat(bool restart) {
-    static const uint8_t cat_x_list[] = {OLED_CAT_X_LIST};
-    static uint8_t       frame        = OLED_CAT_FRAME_NONE;
-    static uint8_t       loops        = 0; // 位置を変えてから、全コマを表示し終えた回数
-    static uint8_t       slot         = 0; // cat_x_list の現在位置
-    static uint32_t      last         = 0;
+    static uint8_t  frame = OLED_CAT_FRAME_NONE;
+    static uint8_t  loops = 0;    // 位置を変えてから、全コマを表示し終えた回数
+    static uint8_t  slot  = 0;    // OLED_CAT_RANDOM_POS=0 のときの OLED_CAT_X_LIST の現在位置
+    static uint8_t  cat_x = 0xFF; // 現在の左端 (0xFF: まだ決めていない)
+    static uint32_t last  = 0;
 
     if (restart) frame = OLED_CAT_FRAME_NONE; // 画面を消した直後は、すぐ描き直す
     uint32_t now = timer_read32();
     if (frame != OLED_CAT_FRAME_NONE && now - last < OLED_CAT_FRAME_MS) return false;
     last = now;
 
-    uint8_t old_x = cat_x_list[slot];
+    uint8_t old_x = cat_x;
     bool    moved = false;
     if (frame == OLED_CAT_FRAME_NONE) {
         frame = 0;
@@ -1034,13 +1068,12 @@ static bool oled_render_cat(bool restart) {
         frame = 0;
         if (++loops >= OLED_CAT_LOOPS_PER_MOVE) {
             loops = 0;
-            slot  = (slot + 1) % (sizeof(cat_x_list) / sizeof(cat_x_list[0]));
             moved = true;
         }
     }
-    uint8_t x0 = cat_x_list[slot];
+    if (cat_x == 0xFF || moved) cat_x = oled_cat_next_x(cat_x, &slot);
 
-    if (moved) { // 前の位置の猫を消す
+    if (moved && old_x != 0xFF) { // 前の位置の猫を消す
         for (uint8_t page = 0; page < 4; page++) {
             for (uint8_t x = 0; x < 32; x++) {
                 oled_write_raw_byte(0, page * OLED_DISPLAY_WIDTH + old_x + x);
@@ -1050,7 +1083,7 @@ static bool oled_render_cat(bool restart) {
     const uint8_t *data = (const uint8_t *)pgm_read_ptr(&cat_frames[frame]);
     for (uint8_t page = 0; page < 4; page++) {
         for (uint8_t x = 0; x < 32; x++) {
-            oled_write_raw_byte((char)pgm_read_byte(&data[page * 32 + x]), page * OLED_DISPLAY_WIDTH + x0 + x);
+            oled_write_raw_byte((char)pgm_read_byte(&data[page * 32 + x]), page * OLED_DISPLAY_WIDTH + cat_x + x);
         }
     }
     return true;
