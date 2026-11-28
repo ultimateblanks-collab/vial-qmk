@@ -997,33 +997,60 @@ static void oled_keymap_sync_task(void) {
     }
 }
 
-// 猫アニメーション (cat_0〜cat_4 を順番に繰り返す)。Keyballロゴの代わりにレイヤー0で表示する
+// 猫アニメーション (cat_0〜cat_4 を順番に繰り返す)。Keyballロゴの代わりにレイヤー0で表示する。
+// 全コマを OLED_CAT_LOOPS_PER_MOVE 回表示するごとに、表示位置を次の位置へ移す
 #    include "cat_frames.h"
 
 #    ifndef OLED_CAT_FRAME_MS
 #        define OLED_CAT_FRAME_MS 150 // 1コマの表示時間(ms)
 #    endif
-#    ifndef OLED_CAT_X
-#        define OLED_CAT_X ((OLED_DISPLAY_WIDTH - 32) / 2) // 猫(幅32px)の左端。既定は中央
+#    ifndef OLED_CAT_LOOPS_PER_MOVE
+#        define OLED_CAT_LOOPS_PER_MOVE 10 // 全コマ(0〜4)を何回表示したら位置を変えるか
+#    endif
+#    ifndef OLED_CAT_X_LIST
+#        define OLED_CAT_X_LIST 0, 32, 64, 96 // 猫(幅32px)の左端の位置。順番に移動して最後は先頭に戻る
 #    endif
 
 #    define OLED_CAT_FRAME_NONE 0xFF
 
 // 戻り値: 表示コマ番号を進めて描画したら true
 static bool oled_render_cat(bool restart) {
-    static uint8_t  frame = OLED_CAT_FRAME_NONE;
-    static uint32_t last  = 0;
+    static const uint8_t cat_x_list[] = {OLED_CAT_X_LIST};
+    static uint8_t       frame        = OLED_CAT_FRAME_NONE;
+    static uint8_t       loops        = 0; // 位置を変えてから、全コマを表示し終えた回数
+    static uint8_t       slot         = 0; // cat_x_list の現在位置
+    static uint32_t      last         = 0;
 
     if (restart) frame = OLED_CAT_FRAME_NONE; // 画面を消した直後は、すぐ描き直す
     uint32_t now = timer_read32();
     if (frame != OLED_CAT_FRAME_NONE && now - last < OLED_CAT_FRAME_MS) return false;
-    frame = (frame == OLED_CAT_FRAME_NONE) ? 0 : (frame + 1) % CAT_FRAME_COUNT;
-    last  = now;
+    last = now;
 
+    uint8_t old_x = cat_x_list[slot];
+    bool    moved = false;
+    if (frame == OLED_CAT_FRAME_NONE) {
+        frame = 0;
+    } else if (++frame >= CAT_FRAME_COUNT) { // 全コマを表示し終えた
+        frame = 0;
+        if (++loops >= OLED_CAT_LOOPS_PER_MOVE) {
+            loops = 0;
+            slot  = (slot + 1) % (sizeof(cat_x_list) / sizeof(cat_x_list[0]));
+            moved = true;
+        }
+    }
+    uint8_t x0 = cat_x_list[slot];
+
+    if (moved) { // 前の位置の猫を消す
+        for (uint8_t page = 0; page < 4; page++) {
+            for (uint8_t x = 0; x < 32; x++) {
+                oled_write_raw_byte(0, page * OLED_DISPLAY_WIDTH + old_x + x);
+            }
+        }
+    }
     const uint8_t *data = (const uint8_t *)pgm_read_ptr(&cat_frames[frame]);
     for (uint8_t page = 0; page < 4; page++) {
         for (uint8_t x = 0; x < 32; x++) {
-            oled_write_raw_byte((char)pgm_read_byte(&data[page * 32 + x]), page * OLED_DISPLAY_WIDTH + OLED_CAT_X + x);
+            oled_write_raw_byte((char)pgm_read_byte(&data[page * 32 + x]), page * OLED_DISPLAY_WIDTH + x0 + x);
         }
     }
     return true;
