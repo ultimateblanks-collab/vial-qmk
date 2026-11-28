@@ -765,9 +765,11 @@ static const char *okm_basic_name(uint8_t kc, char *tmp) {
         case KC_RSFT: return "Sft";
         case KC_RALT: return "Alt";
         case KC_RGUI: return "Gui";
-        case KC_BTN1: return "Bt1";
-        case KC_BTN2: return "Bt2";
-        case KC_BTN3: return "Bt3";
+        case KC_BTN1: return "MB1";
+        case KC_BTN2: return "MB2";
+        case KC_BTN3: return "MB3";
+        case KC_BTN4: return "MB4";
+        
         default: return NULL;
     }
 }
