@@ -997,7 +997,39 @@ static void oled_keymap_sync_task(void) {
     }
 }
 
-// USB非接続側のOLED。レイヤー0はいつものロゴ、それ以外は自分側のキーマップ
+// 猫アニメーション (cat_0〜cat_4 を順番に繰り返す)。Keyballロゴの代わりにレイヤー0で表示する
+#    include "cat_frames.h"
+
+#    ifndef OLED_CAT_FRAME_MS
+#        define OLED_CAT_FRAME_MS 150 // 1コマの表示時間(ms)
+#    endif
+#    ifndef OLED_CAT_X
+#        define OLED_CAT_X ((OLED_DISPLAY_WIDTH - 32) / 2) // 猫(幅32px)の左端。既定は中央
+#    endif
+
+#    define OLED_CAT_FRAME_NONE 0xFF
+
+// 戻り値: 表示コマ番号を進めて描画したら true
+static bool oled_render_cat(bool restart) {
+    static uint8_t  frame = OLED_CAT_FRAME_NONE;
+    static uint32_t last  = 0;
+
+    if (restart) frame = OLED_CAT_FRAME_NONE; // 画面を消した直後は、すぐ描き直す
+    uint32_t now = timer_read32();
+    if (frame != OLED_CAT_FRAME_NONE && now - last < OLED_CAT_FRAME_MS) return false;
+    frame = (frame == OLED_CAT_FRAME_NONE) ? 0 : (frame + 1) % CAT_FRAME_COUNT;
+    last  = now;
+
+    const uint8_t *data = (const uint8_t *)pgm_read_ptr(&cat_frames[frame]);
+    for (uint8_t page = 0; page < 4; page++) {
+        for (uint8_t x = 0; x < 32; x++) {
+            oled_write_raw_byte((char)pgm_read_byte(&data[page * 32 + x]), page * OLED_DISPLAY_WIDTH + OLED_CAT_X + x);
+        }
+    }
+    return true;
+}
+
+// USB非接続側のOLED。レイヤー0は猫のアニメーション、それ以外は自分側のキーマップ
 void oledkit_render_logo_user(void) {
     static bool keymap_shown = false;
 
@@ -1007,19 +1039,13 @@ void oledkit_render_logo_user(void) {
         keymap_shown = true;
         return;
     }
-    if (keymap_shown) { // キーマップ表示から戻ったとき、4行目の消え残りを消す (ロゴは3行)
+    if (keymap_shown) { // キーマップ表示から戻ったとき、文字の消え残りを消す
         oled_clear();
         keymap_shown = false;
+        oled_render_cat(true);
+        return;
     }
-    // 以下は lib/oledkit/oledkit.c の既定のロゴ表示と同じ
-    char ch = 0x80;
-    for (int y = 0; y < 3; y++) {
-        oled_write_P(PSTR("  "), false);
-        for (int x = 0; x < 16; x++) {
-            oled_write_char(ch++, false);
-        }
-        oled_advance_page(false);
-    }
+    oled_render_cat(false);
 }
 
 // OLEDの向き。既定 (lib/oledkit/oledkit.c) は、USB非接続側だけ180度回転。
