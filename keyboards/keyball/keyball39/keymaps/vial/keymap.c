@@ -189,6 +189,12 @@ static void rdp_sync_handler(uint8_t in_buflen, const void *in_data, uint8_t out
     }
 }
 
+#ifdef OLED_ENABLE
+// デフォルト以外のレイヤー中にOLEDへ出す、自分側のキーマップの同期 (実装はファイル後半のOLED節)
+static void oled_keymap_sync_handler(uint8_t in_buflen, const void *in_data, uint8_t out_buflen, void *out_data);
+static void oled_keymap_sync_task(void);
+#endif
+
 void keyboard_post_init_user(void) {
     // AMLのタイムアウトは AUTO_MOUSE_TIME に固定 (keyball.c がEEPROMから読んだ値を上書き)
     set_auto_mouse_timeout(AUTO_MOUSE_TIME);
@@ -202,6 +208,10 @@ void keyboard_post_init_user(void) {
 
     // USB非接続側: マスターから届いたRDPのオン/オフを表示LED用に反映 (EEPROMには保存しない)
     transaction_register_rpc(KEYBALL_RDP_SYNC, rdp_sync_handler);
+#ifdef OLED_ENABLE
+    // USB非接続側: マスターから届いた自分側のキーマップをOLED表示用に受け取る
+    transaction_register_rpc(KEYBALL_KEYMAP_SYNC, oled_keymap_sync_handler);
+#endif
 }
 
 static const uint8_t aml_keep_positions[][2] = KEYBALL_AML_KEEP_POSITIONS;
@@ -535,6 +545,9 @@ const rgblight_driver_t rgblight_driver = {
 #endif
 
 void housekeeping_task_user(void) {
+#ifdef OLED_ENABLE
+    oled_keymap_sync_task();
+#endif
     if (aml_click_exit_pending && timer_elapsed(aml_click_exit_timer) > KEYBALL_AML_CLICK_EXIT_TIME) {
         aml_click_exit_pending = false;
         if (is_aml_layer_active()) {
@@ -626,7 +639,372 @@ static __attribute__((unused)) void render_layer_rdp_info(void) { // 診断用�
     oled_write(line, false);
 }
 
+//////////////////////////////////////////////////////////////////////////////
+// デフォルト以外のレイヤー中、各OLEDに「その手側のキーマップ」を表示する
+//
+// 表示は4行。1〜3行目が各段5キー(1キー4桁: 3文字+空白)、4行目が親指段の6キー(1キー3桁: 2文字+空白)。
+// 1行目の右端には現在のレイヤー番号を出す。KC_TRNSとKC_NOは空欄。
+// 日本語(JIS)配列のVialキーマップ向けに、記号は JIS での入力結果で表示する。
+//
+// Vialのキーマップ(dynamic keymap)はUSB接続側(マスター)のEEPROMにしか入っていないので、
+// 非接続側の分はマスターが読み出してRPCで送る (1回のRPCが32バイトに収まるよう2つに分割)。
+
+#    include "dynamic_keymap.h"
+
+#    define OKM_KEYS 21        // 片側のキー数 (5キー x 3段 + 親指6キー)
+#    define OKM_MAIN_KEYS 15   // 5キー x 3段
+#    define OKM_CHUNK0_KEYS 11 // RPC 1回目に送るキー数 (残りは2回目)
+#    define OKM_SYNC_INTERVAL 500
+
+// 1キー分を w 文字ちょうどで o に書く。長い場合は切り詰める。
+// w=2 のときは "MO1" -> "M1" のように、末尾が数字の3文字は先頭と数字を残す
+static void okm_put(char *o, uint8_t w, const char *s) {
+    char    c[4] = {0};
+    uint8_t len  = strlen(s);
+    if (w == 2 && len == 3 && s[2] >= '0' && s[2] <= '9' && !(s[1] >= '0' && s[1] <= '9')) {
+        c[0] = s[0];
+        c[1] = s[2];
+        s    = c;
+        len  = 2;
+    }
+    uint8_t i = 0;
+    for (; i < w && i < len; i++) o[i] = s[i];
+    for (; i < w; i++) o[i] = ' ';
+}
+
+// Shift を押したときの JIS 配列での記号。該当なしは NULL
+static const char *okm_shift_symbol(uint8_t kc) {
+    switch (kc) {
+        case KC_1: return "!";
+        case KC_2: return "\"";
+        case KC_3: return "#";
+        case KC_4: return "$";
+        case KC_5: return "%";
+        case KC_6: return "&";
+        case KC_7: return "'";
+        case KC_8: return "(";
+        case KC_9: return ")";
+        case KC_MINS: return "=";
+        case KC_EQL: return "~";
+        case KC_LBRC: return "`";
+        case KC_RBRC: return "{";
+        case KC_BSLS: return "}";
+        case KC_NUHS: return "}";
+        case KC_SCLN: return "+";
+        case KC_QUOT: return "*";
+        case KC_COMM: return "<";
+        case KC_DOT: return ">";
+        case KC_SLSH: return "?";
+        case KC_INT1: return "_";
+        case KC_INT3: return "|";
+        default: return NULL;
+    }
+}
+
+// 基本キーコードの表示名 (最大3文字)。tmp は8バイト以上。未対応は NULL
+static const char *okm_basic_name(uint8_t kc, char *tmp) {
+    if (kc >= KC_A && kc <= KC_Z) {
+        tmp[0] = 'a' + (kc - KC_A);
+        tmp[1] = '\0';
+        return tmp;
+    }
+    if (kc >= KC_1 && kc <= KC_9) {
+        tmp[0] = '1' + (kc - KC_1);
+        tmp[1] = '\0';
+        return tmp;
+    }
+    if (kc >= KC_F1 && kc <= KC_F12) {
+        snprintf(tmp, 8, "F%u", (unsigned)(kc - KC_F1 + 1));
+        return tmp;
+    }
+    switch (kc) {
+        case KC_0: return "0";
+        case KC_ENT: return "Ent";
+        case KC_ESC: return "Esc";
+        case KC_BSPC: return "Bsp";
+        case KC_TAB: return "Tab";
+        case KC_SPC: return "Spc";
+        case KC_MINS: return "-";
+        case KC_EQL: return "^";
+        case KC_LBRC: return "@";
+        case KC_RBRC: return "[";
+        case KC_BSLS: return "]";
+        case KC_NUHS: return "]";
+        case KC_SCLN: return ";";
+        case KC_QUOT: return ":";
+        case KC_GRV: return "Zen";
+        case KC_COMM: return ",";
+        case KC_DOT: return ".";
+        case KC_SLSH: return "/";
+        case KC_INT1: return "\\";
+        case KC_INT2: return "Kat";
+        case KC_INT3: return "Yen";
+        case KC_INT4: return "Hen";
+        case KC_INT5: return "Muh";
+        case KC_LNG1: return "Ln1";
+        case KC_LNG2: return "Ln2";
+        case KC_CAPS: return "Cap";
+        case KC_PSCR: return "Prt";
+        case KC_SCRL: return "Scr";
+        case KC_PAUS: return "Pau";
+        case KC_INS: return "Ins";
+        case KC_HOME: return "Hom";
+        case KC_PGUP: return "PgU";
+        case KC_DEL: return "Del";
+        case KC_END: return "End";
+        case KC_PGDN: return "PgD";
+        case KC_RGHT: return "Rgt";
+        case KC_LEFT: return "Lft";
+        case KC_DOWN: return "Dwn";
+        case KC_UP: return "Up";
+        case KC_LCTL: return "Ctl";
+        case KC_LSFT: return "Sft";
+        case KC_LALT: return "Alt";
+        case KC_LGUI: return "Gui";
+        case KC_RCTL: return "Ctl";
+        case KC_RSFT: return "Sft";
+        case KC_RALT: return "Alt";
+        case KC_RGUI: return "Gui";
+        case KC_BTN1: return "Bt1";
+        case KC_BTN2: return "Bt2";
+        case KC_BTN3: return "Bt3";
+        default: return NULL;
+    }
+}
+
+// キーコードを w 文字(2か3)のラベルにして o に書く。depth は LT/MT/タップダンスをたどる深さの制限
+static void okm_label(uint16_t kc, uint8_t w, char *o, uint8_t depth) {
+    char        t[8];
+    char        t2[8];
+    const char *s = NULL;
+
+    if (kc == KC_NO || kc == KC_TRNS) {
+        s = "";
+    } else if (IS_QK_BASIC(kc)) {
+        s = okm_basic_name((uint8_t)kc, t);
+    } else if (IS_QK_MODS(kc)) {
+        uint8_t mods = QK_MODS_GET_MODS(kc);
+        uint8_t base = QK_MODS_GET_BASIC_KEYCODE(kc);
+        if ((mods & 0x0F) == 0x02) { // Shift のみ
+            if (base >= KC_A && base <= KC_Z) {
+                t[0] = 'A' + (base - KC_A);
+                t[1] = '\0';
+                s    = t;
+            } else {
+                s = okm_shift_symbol(base);
+            }
+        }
+        if (!s) { // その他の修飾の組み合わせ: 修飾の頭文字 + 元のキー
+            const char *bn = okm_basic_name(base, t2);
+            char        p  = (mods & 0x01) ? 'C' : (mods & 0x02) ? 'S' : (mods & 0x04) ? 'A' : 'G';
+            snprintf(t, sizeof(t), "%c%s", p, bn ? bn : "?");
+            s = t;
+        }
+    } else if (IS_QK_LAYER_TAP(kc)) {
+        if (depth < 2) {
+            okm_label(QK_LAYER_TAP_GET_TAP_KEYCODE(kc), w, o, depth + 1);
+            return;
+        }
+    } else if (IS_QK_MOD_TAP(kc)) {
+        if (depth < 2) {
+            okm_label(QK_MOD_TAP_GET_TAP_KEYCODE(kc), w, o, depth + 1);
+            return;
+        }
+    } else if (IS_QK_MOMENTARY(kc)) {
+        snprintf(t, sizeof(t), "MO%u", (unsigned)QK_MOMENTARY_GET_LAYER(kc));
+        s = t;
+    } else if (IS_QK_TO(kc)) {
+        snprintf(t, sizeof(t), "TO%u", (unsigned)QK_TO_GET_LAYER(kc));
+        s = t;
+    } else if (IS_QK_TOGGLE_LAYER(kc)) {
+        snprintf(t, sizeof(t), "Tg%u", (unsigned)QK_TOGGLE_LAYER_GET_LAYER(kc));
+        s = t;
+    } else if (IS_QK_DEF_LAYER(kc)) {
+        snprintf(t, sizeof(t), "DF%u", (unsigned)QK_DEF_LAYER_GET_LAYER(kc));
+        s = t;
+    } else if (IS_QK_ONE_SHOT_LAYER(kc)) {
+        snprintf(t, sizeof(t), "OS%u", (unsigned)(kc & 0x1F));
+        s = t;
+    } else if (IS_QK_LAYER_TAP_TOGGLE(kc)) {
+        snprintf(t, sizeof(t), "tt%u", (unsigned)QK_LAYER_TAP_TOGGLE_GET_LAYER(kc));
+        s = t;
+    } else if (IS_QK_TAP_DANCE(kc)) {
+        // 1回タップしたときのキーを表示 (Vialのタップダンス設定から読む)
+        vial_tap_dance_entry_t td;
+        uint8_t                idx = QK_TAP_DANCE_GET_INDEX(kc);
+        if (depth < 2 && dynamic_keymap_get_tap_dance(idx, &td) == 0 && td.on_tap != KC_NO) {
+            okm_label(td.on_tap, w, o, depth + 1);
+            return;
+        }
+        snprintf(t, sizeof(t), "TD%u", (unsigned)idx);
+        s = t;
+    } else if (IS_QK_MACRO(kc)) {
+        unsigned n = kc - QK_MACRO;
+        if (n < 100) {
+            snprintf(t, sizeof(t), "m%u", n);
+            s = t;
+        } else {
+            s = "m**";
+        }
+    } else {
+        switch (kc) {
+            case QK_BOOT: s = "Bot"; break;
+            case CW_TOGG: s = "CW"; break;
+            case RGB_TOG: s = "RGB"; break;
+            case RGB_MOD: s = "Rm+"; break;
+            case RGB_RMOD: s = "Rm-"; break;
+            case RGB_HUI: s = "H+"; break;
+            case RGB_HUD: s = "H-"; break;
+            case RGB_SAI: s = "S+"; break;
+            case RGB_SAD: s = "S-"; break;
+            case RGB_VAI: s = "V+"; break;
+            case RGB_VAD: s = "V-"; break;
+            case KBC_RST: s = "Rst"; break;
+            case KBC_SAVE: s = "Sav"; break;
+            case CPI_I100: s = "C+1"; break;
+            case CPI_D100: s = "C-1"; break;
+            case CPI_I1K: s = "C+K"; break;
+            case CPI_D1K: s = "C-K"; break;
+            case SCRL_TO: s = "ScT"; break;
+            case SCRL_MO: s = "ScM"; break;
+            case SCRL_DVI: s = "Sd+"; break;
+            case SCRL_DVD: s = "Sd-"; break;
+            case SSNP_VRT: s = "SVT"; break;
+            case SSNP_HOR: s = "SHO"; break;
+            case SSNP_FRE: s = "SFR"; break;
+            case AML_TO: s = "AML"; break;
+            case AML_I50: s = "A+5"; break;
+            case AML_D50: s = "A-5"; break;
+            default: break;
+        }
+    }
+    okm_put(o, w, s ? s : "***");
+}
+
+// layer の、left 側(true:左手, false:右手)のキーコードを OKM_KEYS 個読む。
+// 並びは見た目どおり: 0〜14 が上3段(左から右へ5キーずつ)、15〜20 が親指段(左から右へ6キー)。
+// 左手はマトリクスの行0〜3、右手は行4〜7で、右手は列が右から左の順に並ぶ
+static void okm_fetch(uint8_t layer, bool left, uint16_t *kc) {
+    for (uint8_t i = 0; i < OKM_KEYS; i++) {
+        uint8_t row, col;
+        if (i < OKM_MAIN_KEYS) {
+            row = (left ? 0 : 4) + i / 5;
+            col = left ? (i % 5) : (4 - i % 5);
+        } else {
+            uint8_t t = i - OKM_MAIN_KEYS;
+            row       = left ? 3 : 7;
+            col       = left ? t : (5 - t);
+        }
+        kc[i] = (layer < DYNAMIC_KEYMAP_LAYER_COUNT) ? dynamic_keymap_get_keycode(layer, row, col) : KC_NO;
+    }
+}
+
+// 4行(各21桁ちょうど)を書く。ちょうど21桁書くので改行は自動で、前の表示の消え残りも出ない
+static void okm_render(const uint16_t *kc, uint8_t layer) {
+    char line[KEYBALL_OLED_COLS + 1];
+
+    for (uint8_t r = 0; r < 3; r++) {
+        memset(line, ' ', KEYBALL_OLED_COLS);
+        for (uint8_t c = 0; c < 5; c++) {
+            okm_label(kc[r * 5 + c], 3, &line[c * 4], 0);
+        }
+        if (r == 0) line[KEYBALL_OLED_COLS - 1] = '0' + (layer % 10);
+        line[KEYBALL_OLED_COLS] = '\0';
+        oled_write(line, false);
+    }
+
+    memset(line, ' ', KEYBALL_OLED_COLS);
+    for (uint8_t c = 0; c < 6; c++) {
+        okm_label(kc[OKM_MAIN_KEYS + c], 2, &line[c * 3], 0);
+    }
+    line[KEYBALL_OLED_COLS] = '\0';
+    oled_write(line, false);
+}
+
+static uint8_t okm_current_layer(void) {
+    return get_highest_layer(layer_state | default_layer_state);
+}
+
+// USB非接続側: マスターから届いたキーマップ。2回に分けて届くので、両方のレイヤー番号が揃ったときだけ表示する
+static uint8_t  okm_remote_layer[2];
+static uint16_t okm_remote_kc[OKM_KEYS];
+
+// 同期データ: [0]=何回目か(0/1), [1]=レイヤー番号, [2〜]=キーコード(下位, 上位の順)
+static void oled_keymap_sync_handler(uint8_t in_buflen, const void *in_data, uint8_t out_buflen, void *out_data) {
+    const uint8_t *d = (const uint8_t *)in_data;
+    if (in_buflen < 2 || d[0] > 1) return;
+    uint8_t chunk = d[0];
+    uint8_t n     = chunk == 0 ? OKM_CHUNK0_KEYS : OKM_KEYS - OKM_CHUNK0_KEYS;
+    uint8_t start = chunk == 0 ? 0 : OKM_CHUNK0_KEYS;
+    if (in_buflen < 2 + 2 * n) return;
+    for (uint8_t j = 0; j < n; j++) {
+        okm_remote_kc[start + j] = d[2 + 2 * j] | ((uint16_t)d[3 + 2 * j] << 8);
+    }
+    okm_remote_layer[chunk] = d[1];
+}
+
+// マスター: USB非接続側の手のキーマップを、レイヤーが変わったときと500msごとに送る。
+// 送れなかった場合 (片手だけ接続中など) も、定期的な再送で追いつく。Vialでキーマップを書き換えた場合も反映される
+static void oled_keymap_sync_task(void) {
+    static uint8_t  last_layer = 0xFF;
+    static uint16_t timer      = 0;
+    if (!is_keyboard_master()) return;
+
+    uint8_t layer = okm_current_layer();
+    if (layer == last_layer && timer_elapsed(timer) < OKM_SYNC_INTERVAL) return;
+    last_layer = layer;
+    timer      = timer_read();
+
+    uint16_t kc[OKM_KEYS];
+    uint8_t  buf[2 + 2 * OKM_CHUNK0_KEYS];
+    okm_fetch(layer, !is_keyboard_left(), kc);
+    for (uint8_t chunk = 0; chunk < 2; chunk++) {
+        uint8_t n     = chunk == 0 ? OKM_CHUNK0_KEYS : OKM_KEYS - OKM_CHUNK0_KEYS;
+        uint8_t start = chunk == 0 ? 0 : OKM_CHUNK0_KEYS;
+        buf[0]        = chunk;
+        buf[1]        = layer;
+        for (uint8_t j = 0; j < n; j++) {
+            buf[2 + 2 * j] = kc[start + j] & 0xFF;
+            buf[3 + 2 * j] = kc[start + j] >> 8;
+        }
+        transaction_rpc_send(KEYBALL_KEYMAP_SYNC, 2 + 2 * n, buf);
+    }
+}
+
+// USB非接続側のOLED。レイヤー0はいつものロゴ、それ以外は自分側のキーマップ
+void oledkit_render_logo_user(void) {
+    static bool keymap_shown = false;
+
+    if (okm_remote_layer[0] != okm_remote_layer[1]) return; // 受信途中: 前回の表示のままにする
+    if (okm_remote_layer[0] != 0) {
+        okm_render(okm_remote_kc, okm_remote_layer[0]);
+        keymap_shown = true;
+        return;
+    }
+    if (keymap_shown) { // キーマップ表示から戻ったとき、4行目の消え残りを消す (ロゴは3行)
+        oled_clear();
+        keymap_shown = false;
+    }
+    // 以下は lib/oledkit/oledkit.c の既定のロゴ表示と同じ
+    char ch = 0x80;
+    for (int y = 0; y < 3; y++) {
+        oled_write_P(PSTR("  "), false);
+        for (int x = 0; x < 16; x++) {
+            oled_write_char(ch++, false);
+        }
+        oled_advance_page(false);
+    }
+}
+
 void oledkit_render_info_user(void) {
+    // デフォルト以外のレイヤー: USB接続側の手のキーマップを表示
+    if (okm_current_layer() != 0) {
+        uint16_t kc[OKM_KEYS];
+        uint8_t  layer = okm_current_layer();
+        okm_fetch(layer, is_keyboard_left(), kc);
+        okm_render(kc, layer);
+        return;
+    }
     keyball_oled_render_keyinfo();
     keyball_oled_render_ballinfo();
 #    if defined(KEYBALL_AML_LED_DEBUG) && defined(RGBLIGHT_ENABLE)

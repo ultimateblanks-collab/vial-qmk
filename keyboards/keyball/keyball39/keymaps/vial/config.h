@@ -85,7 +85,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define KEYBALL_UG_RIGHT_COUNT 5
 
 // RDP対策とCaps Wordのオン/オフをUSB非接続側へ送る (アンダーグローを左右とも点灯させるため)
-#define SPLIT_TRANSACTION_IDS_USER KEYBALL_RDP_SYNC
+// KEYBALL_KEYMAP_SYNC: デフォルト以外のレイヤー中、USB非接続側のOLEDに出す自分側のキーマップを送る
+#define SPLIT_TRANSACTION_IDS_USER KEYBALL_RDP_SYNC, KEYBALL_KEYMAP_SYNC
 
 // AML表示用LEDを右手側でも判定できるよう、レイヤー状態を左右で同期する
 #define SPLIT_LAYER_STATE_ENABLE
